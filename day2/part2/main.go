@@ -5,11 +5,33 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 const inputFile = "./input.txt"
 
+var lenDivisors = map[int][]int{
+	2:  {1},
+	3:  {1},
+	4:  {1, 2},
+	5:  {1},
+	6:  {1, 2, 3},
+	7:  {1},
+	8:  {1, 2, 4},
+	9:  {1, 3},
+	10: {1, 2, 5},
+	11: {1},
+	12: {1, 2, 3, 4, 6},
+	13: {1},
+	14: {1, 2, 7},
+	15: {1, 3, 5},
+	16: {1, 2, 4, 8},
+	17: {1},
+	18: {1, 2, 3, 6, 9},
+}
+
 func main() {
+	start := time.Now()
 	data, err := os.ReadFile(inputFile)
 	check(err)
 
@@ -29,6 +51,8 @@ func main() {
 	}
 
 	fmt.Println(totalSum)
+
+	fmt.Println(time.Since(start))
 }
 
 func rangeInvalidSum(lowerBound int, upperBound int) int {
@@ -43,14 +67,7 @@ func rangeInvalidSum(lowerBound int, upperBound int) int {
 }
 
 func isValid(id string) bool {
-	divisors := []int{}
-	for i := 1; i <= len(id)/2; i++ {
-		if len(id)%i == 0 {
-			divisors = append(divisors, i)
-		}
-	}
-
-	for _, divisor := range divisors {
+	for _, divisor := range lenDivisors[len(id)] {
 		if allEqual(strSplitN(id, divisor)) {
 			return false
 		}
