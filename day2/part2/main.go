@@ -5,6 +5,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -29,8 +30,11 @@ var lenDivisors = map[int][]int{
 	17: {1},
 	18: {1, 2, 3, 6, 9},
 }
+var wg sync.WaitGroup
 
 func main() {
+	var wg2 sync.WaitGroup
+	c := make(chan int)
 	start := time.Now()
 	data, err := os.ReadFile(inputFile)
 	check(err)
@@ -47,15 +51,31 @@ func main() {
 		upperBound, err := strconv.Atoi(lbubSlice[1])
 		check(err)
 
-		totalSum += rangeInvalidSum(lowerBound, upperBound)
+		wg.Add(1)
+
+		go rangeInvalidSum(lowerBound, upperBound, c)
+
 	}
+
+	go func() {
+		defer wg2.Done()
+		wg2.Add(1)
+		for val := range c {
+			totalSum += val
+		}
+	}()
+
+	wg.Wait()
+	close(c)
+	wg2.Wait()
 
 	fmt.Println(totalSum)
 
 	fmt.Println(time.Since(start))
 }
 
-func rangeInvalidSum(lowerBound int, upperBound int) int {
+func rangeInvalidSum(lowerBound int, upperBound int, c chan int) {
+	defer wg.Done()
 	sum := 0
 
 	for i := lowerBound; i <= upperBound; i++ {
@@ -63,7 +83,7 @@ func rangeInvalidSum(lowerBound int, upperBound int) int {
 			sum += i
 		}
 	}
-	return sum
+	c <- sum
 }
 
 func isValid(id string) bool {
