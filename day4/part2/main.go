@@ -25,142 +25,140 @@ func main() {
 
 	str := strings.ReplaceAll(string(data), "\n", "")
 
-	neighbors, deg, active := BuildAdjacency(str, width)
+	aMap := BuildAdjacency(str, width)
 
-	removed, _ := Peel4Core(neighbors, deg, active)
+	_, removed := Peel4Core(aMap)
 
 	fmt.Println(time.Since(start))
 	fmt.Println(len(removed))
 }
 
-func BuildAdjacency(str string, W int) (neighbors [][8]int, deg []int, active []bool) {
+// BuildAdjacency builds adjacency for every '1' cell in bitstring, given row width W.
+func BuildAdjacency(str string, W int) map[int][]int {
 	n := len(str)
+	if n%W != 0 {
+		panic("bitstring length is not divisible by row width")
+	}
+
 	H := n / W
+	adj := make(map[int][]int)
 
-	neighbors = make([][8]int, n)
-	deg = make([]int, n)
-	active = make([]bool, n)
-
-	// fill with -1 (no neighbor)
-	for i := range neighbors {
-		for k := range 8 {
-			neighbors[i][k] = -1
-		}
+	// Holds the node ID (index) or -1 for each column of the previous/current row
+	prevRow := make([]int, W)
+	currRow := make([]int, W)
+	for i := range prevRow {
+		prevRow[i] = -1
+		currRow[i] = -1
 	}
 
-	// Previous and current row of node IDs or -1
-	prev := make([]int, W)
-	curr := make([]int, W)
-	for i := range prev {
-		prev[i] = -1
-		curr[i] = -1
-	}
-
-	add := func(a, b int) {
-		// add b to a
-		for k := range 8 {
-			if neighbors[a][k] == -1 {
-				neighbors[a][k] = b
-				deg[a]++
-				return
-			}
-			if neighbors[a][k] == b {
-				// already present (defensive), don't double-count
-				return
-			}
-		}
+	connect := func(a, b int) {
+		adj[a] = append(adj[a], b)
+		adj[b] = append(adj[b], a)
 	}
 
 	for r := range H {
 		for c := range W {
-			idx := r*W + c
-			if str[idx] == '@' {
-				active[idx] = true
-				curr[c] = idx
-
-				// check 4 possible neighbors
-				if c > 0 && curr[c-1] != -1 { // left
-					add(idx, curr[c-1])
-					add(curr[c-1], idx)
-				}
-				if prev[c] != -1 { // up
-					add(idx, prev[c])
-					add(prev[c], idx)
-				}
-				if c > 0 && prev[c-1] != -1 { // up-left
-					add(idx, prev[c-1])
-					add(prev[c-1], idx)
-				}
-				if c < W-1 && prev[c+1] != -1 { // up-right
-					add(idx, prev[c+1])
-					add(prev[c+1], idx)
+			i := r*W + c
+			if str[i] == '@' {
+				currRow[c] = i
+				if _, ok := adj[i]; !ok {
+					adj[i] = []int{}
 				}
 
+				// W (left)
+				if c > 0 && currRow[c-1] != -1 {
+					connect(i, currRow[c-1])
+				}
+				// N (up)
+				if prevRow[c] != -1 {
+					connect(i, prevRow[c])
+				}
+				// NW (up-left)
+				if c > 0 && prevRow[c-1] != -1 {
+					connect(i, prevRow[c-1])
+				}
+				// NE (up-right)
+				if c < W-1 && prevRow[c+1] != -1 {
+					connect(i, prevRow[c+1])
+				}
 			} else {
-				curr[c] = -1
+				currRow[c] = -1
 			}
 		}
-		copy(prev, curr)
-		for i := range curr {
-			curr[i] = -1
+
+		// Shift current row to prev for next iteration
+		copy(prevRow, currRow)
+		for i := range currRow {
+			currRow[i] = -1
 		}
 	}
 
-	return neighbors, deg, active
+	return adj
 }
 
-func Peel4Core(neighbors [][8]int, deg []int, active []bool) (removed []int, remains []int) {
-	n := len(neighbors)
+// Peel4Core takes an adjacency list and removes nodes with degree < 4
+// until stable. It returns:
+//   - remaining: nodes in the 4-core
+//   - removed: nodes removed during peeling (in order)
+func Peel4Core(adj map[int][]int) (remaining []int, removed []int) {
+	// Current degree of each node
+	degree := make(map[int]int, len(adj))
+	for node, neighbors := range adj {
+		degree[node] = len(neighbors)
+	}
 
-	queue := make([]int, 0, n)
-	inQueue := make([]bool, n)
-	removedFlag := make([]bool, n)
+	// Queue of nodes that currently have degree < 4
+	queue := make([]int, 0)
+	inQueue := make(map[int]bool)
 
-	// enqueue all active nodes with degree < 4 (including deg == 0)
-	for i := range n {
-		if !active[i] {
-			continue
-		}
-		if deg[i] < 4 { // <-- include deg == 0
-			queue = append(queue, i)
-			inQueue[i] = true
+	for node, d := range degree {
+		if d < 4 {
+			queue = append(queue, node)
+			inQueue[node] = true
 		}
 	}
 
+	// Set to track removed nodes
+	removedSet := make(map[int]bool)
+
+	// Process queue
 	for len(queue) > 0 {
-		v := queue[len(queue)-1]
+		// pop last element
+		node := queue[len(queue)-1]
 		queue = queue[:len(queue)-1]
 
-		if removedFlag[v] {
+		if removedSet[node] {
 			continue
 		}
 
-		removedFlag[v] = true
-		removed = append(removed, v)
+		removedSet[node] = true
+		removed = append(removed, node)
 
-		for _, nb := range neighbors[v] {
-			if nb == -1 {
+		// Decrease degree of neighbors
+		for _, nbr := range adj[node] {
+			if removedSet[nbr] {
 				continue
 			}
-			if removedFlag[nb] {
-				continue
-			}
+			degree[nbr]--
 
-			deg[nb]--
-			if deg[nb] < 4 && !inQueue[nb] {
-				queue = append(queue, nb)
-				inQueue[nb] = true
+			// If neighbor now has degree < 4, enqueue it
+			if degree[nbr] < 4 && !inQueue[nbr] {
+				queue = append(queue, nbr)
+				inQueue[nbr] = true
 			}
 		}
 	}
-	// collect remains only among active nodes
-	for i := range n {
-		if !active[i] {
-			continue
-		}
-		if deg[i] >= 4 {
-			remains = append(remains, i)
+
+	// Remaining nodes = not removed
+	for node := range adj {
+		if !removedSet[node] {
+			remaining = append(remaining, node)
 		}
 	}
+
 	return
+}
+
+type node struct {
+	edges []node
 }
