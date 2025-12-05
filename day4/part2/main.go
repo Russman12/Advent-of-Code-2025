@@ -4,14 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 )
 
 const inputFile = "./input.txt"
-
-const (
-	distance    = 1
-	adjacentMax = 4
-)
 
 func check(e error) {
 	if e != nil {
@@ -20,72 +16,149 @@ func check(e error) {
 }
 
 func main() {
+	start := time.Now()
+
 	data, err := os.ReadFile(inputFile)
 	check(err)
 
-	strs := strings.Split(strings.Trim(string(data), "\n"), "\n")
+	width := strings.Index(string(data), "\n")
 
-	grid := [][]string{}
+	str := strings.ReplaceAll(string(data), "\n", "")
 
-	for _, str := range strs {
-		grid = append(grid, strings.Split(str, ""))
-	}
+	aMap := BuildAdjacency(str, width)
 
-	cnt := 0
+	_, removed := Peel4Core(aMap)
 
-	for {
-		idxs, curCnt := pickRound(grid)
-		if curCnt == 0 {
-			break
-		}
-
-		cnt += curCnt
-
-		for _, val := range idxs {
-			grid[val[1]][val[0]] = "."
-		}
-	}
-	fmt.Println(cnt)
+	fmt.Println(time.Since(start))
+	fmt.Println(len(removed))
 }
 
-func pickRound(grid [][]string) ([][]int, int) {
-	cnt := 0
-	removedIdx := [][]int{}
-	for y := range grid {
-		for x := range grid[y] {
-			if grid[y][x] == "@" && canPick(grid, x, y) {
-				removedIdx = append(removedIdx, []int{x, y})
-				cnt++
+// BuildAdjacency builds adjacency for every '1' cell in bitstring, given row width W.
+func BuildAdjacency(str string, W int) map[int][]int {
+	n := len(str)
+	if n%W != 0 {
+		panic("bitstring length is not divisible by row width")
+	}
+
+	H := n / W
+	adj := make(map[int][]int)
+
+	// Holds the node ID (index) or -1 for each column of the previous/current row
+	prevRow := make([]int, W)
+	currRow := make([]int, W)
+	for i := range prevRow {
+		prevRow[i] = -1
+		currRow[i] = -1
+	}
+
+	connect := func(a, b int) {
+		adj[a] = append(adj[a], b)
+		adj[b] = append(adj[b], a)
+	}
+
+	for r := range H {
+		for c := range W {
+			i := r*W + c
+			if str[i] == '@' {
+				currRow[c] = i
+				if _, ok := adj[i]; !ok {
+					adj[i] = []int{}
+				}
+
+				// W (left)
+				if c > 0 && currRow[c-1] != -1 {
+					connect(i, currRow[c-1])
+				}
+				// N (up)
+				if prevRow[c] != -1 {
+					connect(i, prevRow[c])
+				}
+				// NW (up-left)
+				if c > 0 && prevRow[c-1] != -1 {
+					connect(i, prevRow[c-1])
+				}
+				// NE (up-right)
+				if c < W-1 && prevRow[c+1] != -1 {
+					connect(i, prevRow[c+1])
+				}
+			} else {
+				currRow[c] = -1
 			}
 		}
+
+		// Shift current row to prev for next iteration
+		copy(prevRow, currRow)
+		for i := range currRow {
+			currRow[i] = -1
+		}
 	}
 
-	return removedIdx, cnt
+	return adj
 }
 
-func canPick(grid [][]string, x int, y int) bool {
-	cnt := 0
-	for checkY := y - distance; checkY <= y+distance; checkY++ {
-		if checkY < 0 || checkY == len(grid) {
+// Peel4Core takes an adjacency list and removes nodes with degree < 4
+// until stable. It returns:
+//   - remaining: nodes in the 4-core
+//   - removed: nodes removed during peeling (in order)
+func Peel4Core(adj map[int][]int) (remaining []int, removed []int) {
+	// Current degree of each node
+	degree := make(map[int]int, len(adj))
+	for node, neighbors := range adj {
+		degree[node] = len(neighbors)
+	}
+
+	// Queue of nodes that currently have degree < 4
+	queue := make([]int, 0)
+	inQueue := make(map[int]bool)
+
+	for node, d := range degree {
+		if d < 4 {
+			queue = append(queue, node)
+			inQueue[node] = true
+		}
+	}
+
+	// Set to track removed nodes
+	removedSet := make(map[int]bool)
+
+	// Process queue
+	for len(queue) > 0 {
+		// pop last element
+		node := queue[len(queue)-1]
+		queue = queue[:len(queue)-1]
+
+		if removedSet[node] {
 			continue
 		}
-		for checkX := x - distance; checkX <= x+distance; checkX++ {
-			if checkX < 0 || checkX == len(grid[checkY]) {
+
+		removedSet[node] = true
+		removed = append(removed, node)
+
+		// Decrease degree of neighbors
+		for _, nbr := range adj[node] {
+			if removedSet[nbr] {
 				continue
 			}
+			degree[nbr]--
 
-			if checkY == y && checkX == x {
-				continue
-			}
-
-			if grid[checkY][checkX] == "@" {
-				cnt++
-				if cnt >= adjacentMax {
-					return false
-				}
+			// If neighbor now has degree < 4, enqueue it
+			if degree[nbr] < 4 && !inQueue[nbr] {
+				queue = append(queue, nbr)
+				inQueue[nbr] = true
 			}
 		}
 	}
 
-	return true
+	// Remaining nodes = not removed
+	for node := range adj {
+		if !removedSet[node] {
+			remaining = append(remaining, node)
+		}
+	}
+
+	return
+}
+
+type node struct {
+	edges []node
 }
